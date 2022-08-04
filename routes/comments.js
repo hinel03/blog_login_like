@@ -1,87 +1,147 @@
 const express = require("express");
-const Comments = require("../schemas/comments");
-const Posts = require("../schemas/posts");
-const { stringify } = require("querystring");
+const { Comment } = require("../models");
+const { Post } = require("../models");
+const authMiddleware = require("../middlewares/auth-middleware");
 const router = express.Router();
 
-router.get("/comments/:postId", async (req,res) => {
-    const {postId} = req.params;
-    
-    const comments = await Comments.find({ postId: postId }).sort({ date: -1 });
-    const encoded = [];
+/*
+ * 기능: 댓글 조회
+ * API URL: /comments
+ * Method: GET 
+ * 데이터 베이스 내에 존재하는 댓글들을 불러오는 API
+ * 로그인 없이도 사용 가능 
+ */
 
-    for(i=0; i<comments.length; i++){
-        encoded.push({
-            commentId: comments[i]._id,
-            user: comments[i].writerId,
-            content: comments[i].content,
-            createdAt: comments[i].date,
-        });
-    }
+router.get("/comments", async (req, res) => {
+    const comments = await Comment.findAll({ order: [['createdAt', 'DESC']] });
+
     res.json({
-        encoded,
+        comments,
     });
 });
 
-router.post("/comments/:postId", async (req,res) => {
-    const { writerId, password, content } = req.body;
-    const {postId} = req.params; 
-    const date = new Date();
 
-    const [posts] = await Posts.find({_id: postId});
+/*
+ * 기능: 특정 글의 댓글 조회
+ * API URL: /comments/:postId
+ * Method: GET 
+ * 데이터 베이스 내에 존재하는 해당 글의 댓글들을 불러오는 API
+ * 로그인 없이도 사용 가능 
+ */
 
-    if(posts) {
-        const createdComments = await Comments.create({ writerId, password, content, date, postId });
-    }
-    else{
-        return res.status(400).json({ success:false, errorMessage: "존재하지 않는 게시글입니다." });
-    }
-    
+router.get("/comments/:postId", async (req, res) => {
+    const { postId } = req.params;
+    const comments = await Comment.findAll({ where: { postId }, order: [['createdAt', 'DESC']] });
 
-    res.json( "댓글을 생성하였습니다." );
+    res.json({
+        comments,
+    });
 });
 
-router.put("/comments/:commentId", async (req,res) => {
+/*
+ * 기능: 댓글 작성
+ * API URL: /comments/:postId
+ * Method: POST 
+ * 데이터 베이스 내에 존재하는 해당 글에 댓글을 작성/저장하는 API
+ * 로그인 필요
+ * 해당 글이 존재하지 않을 시에 진행 불가
+ * 유저 입력 url에서 해당 글에 아이디를 받아와서 찾는 방식 (postId) 
+ * 유저 입력 값을 body를 통해서 받음 ( content ) 내용
+ */
+
+router.post("/comments/:postId", authMiddleware, async (req, res) => {
+    const { content } = req.body;
+    const { postId } = req.params;
+    const { user } = res.locals;
+    const nickname = user.nickname;
+
+    const detailpost = await Post.findOne({ where: { postId } });
+
+    if (detailpost) {
+        await Comment.create({ nickname, content, postId });
+    }
+    else {
+        return res.status(400).json({ success: false, errorMessage: "존재하지 않는 게시글입니다." });
+    }
+
+
+    res.send(201).send({});
+});
+
+/*
+ * 기능: 댓글 수정
+ * API URL: /comments/:commentId
+ * Method: PUT 
+ * 데이터 베이스 내에 존재하는 해당 댓글을 수정하는 API
+ * 로그인 필요
+ * 해당 댓글이 존재하지 않을 시에 진행 불가
+ * 유저 입력 url에서 해당 댓글에 아이디를 받아와서 찾는 방식 ( commentId ) 
+ * 유저 입력 값을 body를 통해서 받음 ( content ) 내용
+ * 내용 없을 시에 진행 불가
+ * 유저 입력 비밀번호와 로그인 된 아이디 비밀번호 다를 시에 진행 불가
+ */
+
+router.put("/comments/:commentId", authMiddleware, async (req, res) => {
     const { password, content } = req.body;
-    const {commentId} = req.params; 
+    const { user } = res.locals;
+    const { commentId } = req.params;
 
-    const [comments] = await Comments.find({_id: commentId});
-    
-    if(comments) {
-        if( !content ){
-            return res.status(400).json({ success:false, errorMessage: "내용을 입력해주세요." });
+    const selectedComment = await Comment.findOne({ where: { commentId } });
+
+    if (selectedComment) {
+        if (!content) {
+            return res.status(400).json({ success: false, errorMessage: "내용을 입력해주세요." });
         }
-        else{
-            if(password === comments.password){
-                await Comments.updateOne({_id: commentId}, { $set: { content } });
+        else {
+            if ((password).toString() === user.password) {
+                await Comment.update({ content: content }, { where: { commentId } });
             }
-            else{
-                return res.status(400).json({ success:false, errorMessage: "비밀번호가 다릅니다." });
+            else {
+                return res.status(400).json({ success: false, errorMessage: "비밀번호가 다릅니다." });
             }
         }
-        
+
     }
-    
-    res.json( "댓글을 수정하였습니다." );
+    else {
+        return res.status(400).json({ success: false, errorMessage: "존재하지 않는 댓글입니다." });
+    }
+
+    res.status(200).json("댓글을 수정하였습니다.");
 });
 
-router.delete("/comments/:commentId", async (req,res) => {
-    const { password } = req.body;
-    const {commentId} = req.params; 
+/*
+ * 기능: 댓글 삭제
+ * API URL: /comments/:commentId
+ * Method: DELETE 
+ * 데이터 베이스 내에 존재하는 해당 댓글을 삭제하는 API
+ * 로그인 필요
+ * 해당 댓글이 존재하지 않을 시에 진행 불가
+ * 유저 입력 url에서 해당 댓글에 아이디를 받아와서 찾는 방식 ( commentId ) 
+ * 유저 입력 값을 body를 통해서 받음 ( password )비밀번호 
+ * 유저 입력 비밀번호와 로그인 된 아이디 비밀번호 다를 시에 진행 불가
+ */
 
-    const [comments] = await Comments.find({_id: commentId});
-    
-    if(comments) {
-        if( password === comments.password ){
-            await Comments.deleteOne({ _id: commentId });
-            console.log("삭제 완료");
+router.delete("/comments/:commentId", authMiddleware, async (req, res) => {
+    const { password } = req.body;
+    const { commentId } = req.params;
+    const { user } = res.locals;
+
+    const selectedComment = await Comment.findOne({ commentId });
+
+    if (selectedComment) {
+        if ((password).toString() === user.password) {
+            await Comment.destroy({ where: { commentId: commentId } });
+
         }
-        else{
-            return res.status(400).json({ success:false, errorMessage: "비밀번호가 다릅니다." });
+        else {
+            return res.status(400).json({ success: false, errorMessage: "비밀번호가 다릅니다." });
         }
     }
-    
-    res.json( "댓글을 삭제하였습니다." );
+    else {
+        return res.status(400).json({ success: false, errorMessage: "존재하지 않는 댓글입니다." });
+    }
+
+    res.status(200).json("댓글을 삭제하였습니다.");
 });
 
 module.exports = router;
