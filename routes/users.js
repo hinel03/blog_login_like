@@ -19,9 +19,23 @@ const router = express.Router();
 
 router.post("/users", async (req, res) => {
 
-    const { nickname, password, confirmpassword } = req.body;
+    const { nickname, password, confirmPassword } = req.body;
 
-    if (password !== confirmpassword) {
+    if (nickname.length < 3) {
+        res.status(400).send({
+            errorMessage: "닉네임을 확인하세요.",
+        });
+        return;
+    }
+
+    if (password.length < 4 || password.includes(nickname)) {
+        res.status(400).send({
+            errorMessage: "비밀번호를 확인하세요.",
+        });
+        return;
+    }
+
+    if (password !== confirmPassword) {
         res.status(400).send({
             errorMessage: "비밀번호가 일치하지 않습니다.",
         });
@@ -110,23 +124,23 @@ router.get("/users/me", authMiddleware, async (req, res) => {
 router.get("/users/likes", authMiddleware, async (req, res) => {
     const { user } = res.locals;
     const userId = user.userId;
-        
-    const likedposts = await LikePost.findAll({ order: [['updatedAt', 'DESC']], where: { userId }});
-    
-    if(likedposts.length){
-       const likedpostId = likedposts.map(function(obj){
-        const temp = obj.postId;
-        console.log(temp);
-        return temp;
-       });
 
-       const selectedPosts = await Post.findAll({ order: [['likes', 'DESC']], where: { postid:likedpostId }});
+    const likedposts = await LikePost.findAll({ order: [['updatedAt', 'DESC']], where: { userId } });
 
-       res.json({
-        selectedPosts,
-    });
+    if (likedposts.length) {
+        const likedpostId = likedposts.map(function (obj) {
+            const temp = obj.postId;
+            console.log(temp);
+            return temp;
+        });
+
+        const selectedPosts = await Post.findAll({ order: [['likes', 'DESC']], where: { postid: likedpostId } });
+
+        res.json({
+            selectedPosts,
+        });
     }
-    else{
+    else {
         return res.status(400).json({ success: false, errorMessage: "좋아요를 표시한 글이 없습니다." });
     }
 });
