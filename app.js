@@ -4,8 +4,6 @@ const cookieParser = require("cookie-parser");
 const app = express();
 const port = 3000;
 
-connect();
-
 const postsRouter = require("./routes/posts");
 const commentsRouter = require("./routes/comments");
 const userRouter = require("./routes/users");
